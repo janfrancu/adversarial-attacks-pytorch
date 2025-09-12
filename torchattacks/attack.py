@@ -2,6 +2,8 @@ import time
 from collections import OrderedDict
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 
@@ -60,6 +62,10 @@ class Attack(object):
         self._model_training = False
         self._batchnorm_training = False
         self._dropout_training = False
+
+        # Controls loss function used for adversarial generation.
+        self.loss_function = "crossentropy"
+        self.supported_loss_functions = ["crossentropy", "binary_crossentropy"]
 
     def forward(self, inputs, labels=None, *args, **kwargs):
         r"""
@@ -122,6 +128,63 @@ class Attack(object):
         mean = self.normalization_used["mean"].to(inputs.device)
         std = self.normalization_used["std"].to(inputs.device)
         return inputs * std + mean
+
+    @wrapper_method
+    def set_loss_function(self, loss_function):
+        r"""
+        Set the loss function used for adversarial generation.
+
+        Arguments:
+            loss_function (str): Loss function to use. 
+                - 'crossentropy': For multiclass classification (default)
+                - 'binary_crossentropy': For binary classification models with single output only
+
+        Note:
+            Binary CrossEntropy is specifically designed for binary classification models
+            that output a single logit and were trained with BCE loss. Using BCE for 
+            multiclass models is not recommended as it doesn't align with the training
+            loss landscape.
+        """
+        if loss_function not in self.supported_loss_functions:
+            raise ValueError(f"Loss function '{loss_function}' is not supported. "
+                           f"Supported options: {self.supported_loss_functions}")
+        self.loss_function = loss_function
+        print(f"Loss function is changed to '{loss_function}'.")
+
+    def get_loss_function(self):
+        r"""
+        Get the current loss function.
+
+        """
+        return self.loss_function
+
+    def get_loss(self, outputs, labels):
+        r"""
+        Get the loss based on the configured loss function.
+
+        Arguments:
+            outputs (torch.Tensor): Model outputs/logits
+            labels (torch.Tensor): True labels
+
+        Returns:
+            torch.Tensor: Computed loss
+
+        """
+        if self.loss_function == "crossentropy":
+            loss_fn = nn.CrossEntropyLoss()
+            return loss_fn(outputs, labels)
+        elif self.loss_function == "binary_crossentropy":
+            # For binary classification: model outputs single logit, labels are 0/1
+            if outputs.shape[1] == 1:
+                loss_fn = nn.BCEWithLogitsLoss()
+                return loss_fn(outputs.squeeze(), labels.float())
+            else:
+                raise ValueError(
+                    "Binary CrossEntropy for multiclass models (output shape > 1) is not supported. "
+                    "Multiclass models should use 'crossentropy' loss function."
+                )
+        else:
+            raise ValueError(f"Unsupported loss function: {self.loss_function}")
 
     def get_mode(self):
         r"""
@@ -465,6 +528,16 @@ class Attack(object):
     @torch.no_grad()
     def get_least_likely_label(self, inputs, labels=None):
         outputs = self.get_output_with_eval_nograd(inputs)
+        
+        # Handle binary classification case
+        if outputs.shape[-1] == 1:
+            # For binary classification, just flip the labels
+            if labels is None:
+                labels = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
+            target_labels = 1 - labels  # Flip 0->1, 1->0
+            return target_labels.long().to(self.device)
+        
+        # Multi-class case
         if labels is None:
             _, labels = torch.max(outputs, dim=1)
         n_classses = outputs.shape[-1]
@@ -481,6 +554,16 @@ class Attack(object):
     @torch.no_grad()
     def get_random_target_label(self, inputs, labels=None):
         outputs = self.get_output_with_eval_nograd(inputs)
+        
+        # Handle binary classification case
+        if outputs.shape[-1] == 1:
+            # For binary classification, just flip the labels
+            if labels is None:
+                labels = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
+            target_labels = 1 - labels  # Flip 0->1, 1->0
+            return target_labels.long().to(self.device)
+        
+        # Multi-class case
         if labels is None:
             _, labels = torch.max(outputs, dim=1)
         n_classses = outputs.shape[-1]
