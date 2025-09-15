@@ -177,7 +177,7 @@ class Attack(object):
             # For binary classification: model outputs single logit, labels are 0/1
             if outputs.shape[1] == 1:
                 loss_fn = nn.BCEWithLogitsLoss()
-                return loss_fn(outputs.squeeze(), labels.float())
+                return loss_fn(outputs, labels.float())
             else:
                 raise ValueError(
                     "Binary CrossEntropy for multiclass models (output shape > 1) is not supported. "
