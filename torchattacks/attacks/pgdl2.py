@@ -56,13 +56,6 @@ class PGDL2(Attack):
         self.eps_for_division = eps_for_division
         self.supported_mode = ["default", "targeted"]
 
-        print("=== INIT PGDL2 ATTACK ===")
-        print("eps =", eps)
-        print("alpha =", alpha)
-        print("steps =", steps)
-        print("random_start =", random_start)
-        print("loss_function =", loss_function)
-
         # Set the loss function
         if loss_function != "crossentropy":
             self.set_loss_function(loss_function)
@@ -71,10 +64,6 @@ class PGDL2(Attack):
         r"""
         Overridden.
         """
-
-        # print("PGDL2 forward(): called with batch =", images.shape)
-        # print("steps =", self.steps, "eps =", self.eps, "alpha =", self.alpha)
-
 
         images = images.clone().detach().to(self.device)
         labels = labels.clone().detach().to(self.device)
