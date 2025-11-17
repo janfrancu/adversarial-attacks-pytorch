@@ -17,6 +17,9 @@ class PGDL2(Attack):
         alpha (float): step size. (Default: 0.2)
         steps (int): number of steps. (Default: 10)
         random_start (bool): using random initialization of delta. (Default: True)
+        loss_function (str): loss function for adversarial generation. (Default: 'crossentropy')
+            - 'crossentropy': For multi-class classification (standard)
+            - 'binary_crossentropy': For binary classification models with single output
 
     Shape:
         - images: :math:`(N, C, H, W)` where `N = number of batches`, `C = number of channels`,        `H = height` and `W = width`. It must have a range [0, 1].
@@ -24,9 +27,15 @@ class PGDL2(Attack):
         - output: :math:`(N, C, H, W)`.
 
     Examples::
+        >>> # Multi-class classification (default)
         >>> attack = torchattacks.PGDL2(model, eps=1.0, alpha=0.2, steps=10, random_start=True)
         >>> adv_images = attack(images, labels)
 
+        >>> # Binary classification with single output
+        >>> binary_model = MyBinaryModel()  # outputs shape [batch_size, 1]
+        >>> attack = torchattacks.PGD(binary_model, eps=8/255, alpha=1/255, steps=10, 
+        ...                          random_start=True, loss_function='binary_crossentropy')
+        >>> adv_images = attack(images, binary_labels)  # binary_labels are 0/1
     """
 
     def __init__(
@@ -37,6 +46,7 @@ class PGDL2(Attack):
         steps=10,
         random_start=True,
         eps_for_division=1e-10,
+        loss_function="crossentropy"
     ):
         super().__init__("PGDL2", model)
         self.eps = eps
@@ -46,18 +56,31 @@ class PGDL2(Attack):
         self.eps_for_division = eps_for_division
         self.supported_mode = ["default", "targeted"]
 
+        print("=== INIT PGDL2 ATTACK ===")
+        print("eps =", eps)
+        print("alpha =", alpha)
+        print("steps =", steps)
+        print("random_start =", random_start)
+        print("loss_function =", loss_function)
+
+        # Set the loss function
+        if loss_function != "crossentropy":
+            self.set_loss_function(loss_function)
+
     def forward(self, images, labels):
         r"""
         Overridden.
         """
+
+        # print("PGDL2 forward(): called with batch =", images.shape)
+        # print("steps =", self.steps, "eps =", self.eps, "alpha =", self.alpha)
+
 
         images = images.clone().detach().to(self.device)
         labels = labels.clone().detach().to(self.device)
 
         if self.targeted:
             target_labels = self.get_target_label(images, labels)
-
-        loss = nn.CrossEntropyLoss()
 
         adv_images = images.clone().detach()
         batch_size = len(images)
@@ -75,11 +98,11 @@ class PGDL2(Attack):
             adv_images.requires_grad = True
             outputs = self.get_logits(adv_images)
 
-            # Calculate loss
+            # Calculate loss using the configured loss function
             if self.targeted:
-                cost = -loss(outputs, target_labels)
+                cost = -self.get_loss(outputs, target_labels)
             else:
-                cost = loss(outputs, labels)
+                cost = self.get_loss(outputs, labels)
 
             # Update adversarial images
             grad = torch.autograd.grad(
