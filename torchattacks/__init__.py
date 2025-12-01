@@ -35,6 +35,7 @@ from .attacks.eaden import EADEN
 
 # L1 attacks
 from .attacks.eadl1 import EADL1
+from .attacks.pgdl1 import PGDL1
 
 # L0 attacks
 from .attacks.sparsefool import SparseFool
@@ -82,6 +83,7 @@ __all__ = [
     "PIFGSMPP",
     "CW",
     "PGDL2",
+    "PGDL1",
     "DeepFool",
     "PGDRSL2",
     "SparseFool",
