@@ -6,8 +6,8 @@ from ..attack import Attack
 
 class PGDL2(Attack):
     r"""
-    PGD in the paper 'Towards Deep Learning Models Resistant to Adversarial Attacks'
-    [https://arxiv.org/abs/1706.06083]
+    PGD attack with an L2 constraint. Each step uses an L2-normalized gradient
+    update followed by projection onto the L2 ball.
 
     Distance Measure : L2
 
@@ -33,8 +33,8 @@ class PGDL2(Attack):
 
         >>> # Binary classification with single output
         >>> binary_model = MyBinaryModel()  # outputs shape [batch_size, 1]
-        >>> attack = torchattacks.PGD(binary_model, eps=8/255, alpha=1/255, steps=10, 
-        ...                          random_start=True, loss_function='binary_crossentropy')
+        >>> attack = torchattacks.PGDL2(binary_model, eps=1.0, alpha=0.2, steps=10,
+        ...                              random_start=True, loss_function='binary_crossentropy')
         >>> adv_images = attack(images, binary_labels)  # binary_labels are 0/1
     """
 
