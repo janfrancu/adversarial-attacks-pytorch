@@ -13,32 +13,59 @@ def project_simplex(u, bound):
 
 
 def project_l1ball(u, bound):
+    """
+    Project each row vector in `u` onto the L1 ball of radius `bound`.
+
+    The projection is computed by projecting the magnitudes |u| onto the simplex and then restoring the original signs.
+
+    Based on the method described in:
+        Duchi et al. (2008), 
+        "Efficient Projections onto the L1-ball for Learning in High Dimensions",
+        ICML.
+
+    Parameters:
+    u : torch.Tensor
+        Input tensor of shape (N, D). Each row is projected independently.
+    bound : float
+        Radius of the L1 ball (must be >= 0).
+
+    Returns:
+    torch.Tensor
+        Tensor of same shape as `u`, containing projected vectors.
+    """
+        
     assert bound >= 0
     
     abs_u = torch.abs(u)
     l1norm = abs_u.sum(dim=1)
-    mask = l1norm > bound
+    mask = l1norm <= bound
 
-    if not mask.any():
+    if torch.all(mask):
         return u
 
     out = u.clone()
-    u_outside = abs_u[mask]
+    u_outside = abs_u[~mask]
     v = project_simplex(u_outside, bound)
-    out[mask] = torch.sign(u[mask]) * v
+    out[~mask] = torch.sign(u[~mask]) * v
 
     return out
+
 
 
 class PGDL1(Attack):
     r"""
     PGD-L1 Attack.
 
-    This implements PGD under an L1 constraint. The update uses a sparse
-    gradient direction by keeping only the largest components and
-    L1-normalizing the sign vector before each step.
+    This implements projected gradient descent (PGD) under an L1 constraint
+    using sparse gradient updates and L1-normalized step directions.
 
     Distance Measure : L1
+
+    # This PGD-L1 attack is implemented following the algorithm described by
+    # David Stutz (2023) in:
+    # "Lp Adversarial Examples using Projected Gradient Descent in PyTorch"
+    # https://davidstutz.de/lp-adversarial-examples-using-projected-gradient-descent-in-pytorch/
+
 
     Arguments:
         model (nn.Module): model to attack.
@@ -51,7 +78,7 @@ class PGDL1(Attack):
             - 'binary_crossentropy': For binary classification models with single output
 
     Shape:
-        - images: :math:`(N, C, H, W)` where `N = number of batches`, `C = number of channels`,        `H = height` and `W = width`. It must have a range [0, 1].
+        - images: :math:`(N, C, H, W)` where `N = number of batches`, `C = number of channels`, `H = height` and `W = width`. It must have a range [0, 1].
         - labels: :math:`(N)` where each value :math:`y_i` is :math:`0 \leq y_i \leq` `number of labels`.
         - output: :math:`(N, C, H, W)`.
 
@@ -103,6 +130,9 @@ class PGDL1(Attack):
         batch_size = len(images)
 
         if self.random_start:
+        # Random initialization follows the standard PGD scheme introduced by Madry et al. (2018);
+        # we sample noise and then project it onto the L1 ball.
+            
             # Sample Gaussian noise
             delta = torch.randn_like(images)
             # Flatten for per-image norm computation
@@ -136,13 +166,16 @@ class PGDL1(Attack):
                 cost, adv_images, retain_graph=False, create_graph=False
             )[0]
 
-            # Sparsification (top 1% values)
+            # Sparsification (top 1% gradients)
+            # Sparse L1 gradient update follows the SLIDE attack from:
+            # Tramèr & Boneh (2019), "Adversarial Training and Robustness for Multiple Perturbations".
             g = grad.view(batch_size, -1)
             D = g.size(1)
 
             k = max(1, int(0.01 * D))
             idx = D - k
 
+            # kth largest magnitude → threshold for sparse mask
             thresh = torch.kthvalue(g.abs(), idx, dim=1).values
             thresh = thresh.view(batch_size, 1)
 
@@ -150,7 +183,8 @@ class PGDL1(Attack):
             g_sparse = g * mask
             g_sparse = g_sparse.view_as(grad)
 
-            # L1-normalized sparse gradient direction
+            # L1-normalized sparse sign vector (e / ||e||₁) corresponds to the SLIDE update
+            # defined in Tramèr & Boneh (2019), and matches the L1 steepest-ascent PGD direction.
             direction = g_sparse.sign()
             l1_norm = direction.abs().view(batch_size, -1).sum(dim=1).view(batch_size,1,1,1)
             direction = direction / (l1_norm + self.eps_for_division)
